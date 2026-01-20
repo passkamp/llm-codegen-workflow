@@ -1,0 +1,707 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LLM Codegen Workflow</title>
+  <meta name="description" content="A systematic approach to building software with AI assistance. Brainstorm spec, plan, execute.">
+  <meta property="og:title" content="LLM Codegen Workflow">
+  <meta property="og:description" content="Brainstorm. Plan. Execute. A systematic approach to building software with AI.">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    * {
+      font-family: 'Space Grotesk', system-ui, sans-serif;
+    }
+    pre, code {
+      font-family: 'JetBrains Mono', monospace;
+    }
+    ::selection {
+      background: rgba(245, 158, 11, 0.3);
+    }
+    ::-webkit-scrollbar {
+      width: 8px;
+      height: 8px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #18181b;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #3f3f46;
+      border-radius: 4px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #52525b;
+    }
+    body {
+      margin: 0;
+      background: #09090b;
+    }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="text/babel">
+    const { useState, useEffect, useCallback, Fragment } = React;
+
+    // Slide data
+    const slides = [
+      { id: 'intro', section: 'intro' },
+      { id: 'overview', section: 'overview' },
+      { id: 'paths', section: 'paths' },
+      { id: 'greenfield-1', section: 'greenfield', step: 1 },
+      { id: 'greenfield-1b', section: 'greenfield', step: '1b' },
+      { id: 'greenfield-2', section: 'greenfield', step: 2 },
+      { id: 'greenfield-2b', section: 'greenfield', step: '2b' },
+      { id: 'greenfield-2c', section: 'greenfield', step: '2c' },
+      { id: 'greenfield-3', section: 'greenfield', step: 3 },
+      { id: 'greenfield-3b', section: 'greenfield', step: '3b' },
+      { id: 'brownfield-1', section: 'brownfield', step: 1 },
+      { id: 'brownfield-2', section: 'brownfield', step: 2 },
+      { id: 'prompts', section: 'prompts' },
+      { id: 'tips', section: 'tips' },
+      { id: 'recap', section: 'recap' },
+    ];
+
+    // Copy button component
+    const CopyButton = ({ text }) => {
+      const [copied, setCopied] = useState(false);
+      
+      const handleCopy = async () => {
+        await navigator.clipboard.writeText(text);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      };
+      
+      return (
+        <button
+          onClick={handleCopy}
+          className="absolute top-3 right-3 px-3 py-1.5 text-xs font-medium bg-amber-500/20 hover:bg-amber-500/40 text-amber-300 rounded transition-all duration-200"
+        >
+          {copied ? '✓ Copied' : 'Copy'}
+        </button>
+      );
+    };
+
+    // Code block component
+    const CodeBlock = ({ children, copyable = true }) => (
+      <div className="relative group">
+        <pre className="bg-zinc-950 border border-zinc-800 rounded-lg p-4 pr-20 text-sm text-zinc-300 overflow-x-auto leading-relaxed whitespace-pre-wrap">
+          {children}
+        </pre>
+        {copyable && <CopyButton text={children} />}
+      </div>
+    );
+
+    // Flow arrow
+    const FlowArrow = () => (
+      <div className="flex items-center justify-center py-2">
+        <svg width="24" height="40" viewBox="0 0 24 40" className="text-amber-500">
+          <path d="M12 0 L12 32 M4 24 L12 32 L20 24" stroke="currentColor" strokeWidth="2" fill="none"/>
+        </svg>
+      </div>
+    );
+
+    // Step badge
+    const StepBadge = ({ number, label }) => (
+      <div className="flex items-center gap-4 mb-6">
+        <div className="w-12 h-12 rounded-full bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center text-xl font-bold text-zinc-950">
+          {number}
+        </div>
+        <span className="text-zinc-500 uppercase tracking-widest text-sm font-medium">{label}</span>
+      </div>
+    );
+
+    // Navigation
+    const Navigation = ({ current, total, onPrev, onNext }) => (
+      <div className="fixed bottom-0 left-0 right-0 bg-zinc-950/90 backdrop-blur-sm border-t border-zinc-800 z-50">
+        <div className="max-w-5xl mx-auto px-6 py-4 flex items-center justify-between">
+          <button
+            onClick={onPrev}
+            disabled={current === 0}
+            className="flex items-center gap-2 px-4 py-2 text-zinc-400 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+          >
+            <span className="text-xl">←</span>
+            <span className="text-sm font-medium">Prev</span>
+          </button>
+          
+          <div className="flex items-center gap-1">
+            {slides.map((_, i) => (
+              <div
+                key={i}
+                className={`w-2 h-2 rounded-full transition-all duration-300 ${
+                  i === current ? 'bg-amber-500 w-6' : 'bg-zinc-700'
+                }`}
+              />
+            ))}
+          </div>
+          
+          <button
+            onClick={onNext}
+            disabled={current === total - 1}
+            className="flex items-center gap-2 px-4 py-2 text-zinc-400 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+          >
+            <span className="text-sm font-medium">Next</span>
+            <span className="text-xl">→</span>
+          </button>
+        </div>
+      </div>
+    );
+
+    // Table of contents
+    const TableOfContents = ({ currentSlide, onNavigate }) => {
+      const sections = [
+        { id: 'intro', label: 'Intro', slideIndex: 0 },
+        { id: 'overview', label: 'Overview', slideIndex: 1 },
+        { id: 'paths', label: 'Paths', slideIndex: 2 },
+        { id: 'greenfield', label: 'Greenfield', slideIndex: 3 },
+        { id: 'brownfield', label: 'Brownfield', slideIndex: 10 },
+        { id: 'prompts', label: 'Prompts', slideIndex: 12 },
+        { id: 'tips', label: 'Tips', slideIndex: 13 },
+        { id: 'recap', label: 'Recap', slideIndex: 14 },
+      ];
+      
+      const getCurrentSection = () => {
+        for (let i = sections.length - 1; i >= 0; i--) {
+          if (currentSlide >= sections[i].slideIndex) return sections[i].id;
+        }
+        return sections[0].id;
+      };
+      
+      const current = getCurrentSection();
+      
+      return (
+        <nav className="fixed top-6 right-6 z-50 hidden lg:block">
+          <div className="flex flex-col gap-2 text-right">
+            {sections.map((section) => (
+              <button
+                key={section.id}
+                onClick={() => onNavigate(section.slideIndex)}
+                className={`text-xs uppercase tracking-wider transition-all duration-200 ${
+                  section.id === current
+                    ? 'text-amber-500 font-medium'
+                    : 'text-zinc-600 hover:text-zinc-400'
+                }`}
+              >
+                {section.label}
+              </button>
+            ))}
+          </div>
+        </nav>
+      );
+    };
+
+    // Slide wrapper
+    const Slide = ({ children, dark = false }) => (
+      <div className={`min-h-screen flex items-center justify-center px-6 py-20 ${dark ? 'bg-zinc-950' : 'bg-zinc-900'}`}>
+        <div className="max-w-4xl w-full">
+          {children}
+        </div>
+      </div>
+    );
+
+    // Main component
+    function LLMCodegenWorkflow() {
+      const [currentSlide, setCurrentSlide] = useState(0);
+      
+      const goToSlide = useCallback((index) => {
+        setCurrentSlide(Math.max(0, Math.min(slides.length - 1, index)));
+      }, []);
+      
+      const nextSlide = useCallback(() => goToSlide(currentSlide + 1), [currentSlide, goToSlide]);
+      const prevSlide = useCallback(() => goToSlide(currentSlide - 1), [currentSlide, goToSlide]);
+      
+      useEffect(() => {
+        const handleKeyDown = (e) => {
+          if (e.key === 'ArrowRight' || e.key === ' ') {
+            e.preventDefault();
+            nextSlide();
+          } else if (e.key === 'ArrowLeft') {
+            e.preventDefault();
+            prevSlide();
+          }
+        };
+        
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+      }, [nextSlide, prevSlide]);
+      
+      const renderSlide = () => {
+        const slide = slides[currentSlide];
+        
+        switch (slide.id) {
+          case 'intro':
+            return (
+              <Slide dark>
+                <div className="text-center space-y-8">
+                  <div className="inline-block px-4 py-1.5 bg-amber-500/10 border border-amber-500/30 rounded-full text-amber-400 text-sm font-medium tracking-wide mb-4">
+                    LLM CODEGEN WORKFLOW
+                  </div>
+                  <h1 className="text-5xl md:text-7xl font-bold text-white leading-tight">
+                    Brainstorm.<br/>
+                    <span className="text-amber-500">Plan.</span><br/>
+                    Execute.
+                  </h1>
+                  <p className="text-xl text-zinc-400 max-w-2xl mx-auto leading-relaxed">
+                    A systematic approach to building software with AI assistance.
+                    Discrete loops. Then magic. ✩₊˚.⋆☾⋆⁺₊✧
+                  </p>
+                  <div className="pt-8 text-zinc-600 text-sm">
+                    Based on <a href="https://harper.blog/2025/02/16/my-llm-codegen-workflow-atm/" className="text-amber-500/70 hover:text-amber-500 underline" target="_blank" rel="noopener">Harper Reed's workflow</a>
+                  </div>
+                </div>
+              </Slide>
+            );
+            
+          case 'overview':
+            return (
+              <Slide>
+                <h2 className="text-3xl font-bold text-white mb-12 text-center">The System</h2>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                  {[
+                    { num: '01', title: 'Spec', desc: 'The What', color: 'from-blue-500 to-cyan-500' },
+                    { num: '02', title: 'Blueprint', desc: 'The How', color: 'from-amber-500 to-orange-500' },
+                    { num: '03', title: 'Execute', desc: 'The Build', color: 'from-emerald-500 to-green-500' },
+                  ].map((item, i) => (
+                    <div key={i} className="relative group">
+                      <div className={`absolute inset-0 bg-gradient-to-br ${item.color} opacity-10 rounded-2xl group-hover:opacity-20 transition-opacity`} />
+                      <div className="relative p-8 border border-zinc-800 rounded-2xl text-center">
+                        <div className={`text-5xl font-bold bg-gradient-to-br ${item.color} bg-clip-text text-transparent mb-4`}>
+                          {item.num}
+                        </div>
+                        <h3 className="text-xl font-semibold text-white mb-2">{item.title}</h3>
+                        <p className="text-zinc-500">{item.desc}</p>
+                      </div>
+                      {i < 2 && (
+                        <div className="absolute top-1/2 -right-3 transform -translate-y-1/2 text-zinc-600 text-2xl hidden md:block">→</div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+                <p className="text-center text-zinc-500 mt-12 text-lg">
+                  This entire process takes about <span className="text-amber-500 font-semibold">15 minutes</span> to plan.
+                </p>
+              </Slide>
+            );
+            
+          case 'paths':
+            return (
+              <Slide dark>
+                <h2 className="text-3xl font-bold text-white mb-4 text-center">Two Paths</h2>
+                <p className="text-zinc-400 text-center mb-12">Choose your starting point</p>
+                <div className="grid md:grid-cols-2 gap-8">
+                  <div className="p-8 bg-gradient-to-br from-emerald-500/10 to-transparent border border-emerald-500/30 rounded-2xl hover:border-emerald-500/50 transition-colors cursor-pointer">
+                    <div className="text-emerald-400 text-sm font-medium uppercase tracking-wider mb-4">Path A</div>
+                    <h3 className="text-2xl font-bold text-white mb-3">Greenfield</h3>
+                    <p className="text-zinc-400 leading-relaxed">
+                      Starting fresh. Full planning workflow with spec, blueprint, and systematic execution.
+                    </p>
+                    <div className="mt-6 flex flex-wrap gap-2">
+                      {['New project', 'Full spec', 'TDD approach'].map(tag => (
+                        <span key={tag} className="px-3 py-1 bg-emerald-500/10 text-emerald-400 text-xs rounded-full">{tag}</span>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="p-8 bg-gradient-to-br from-orange-500/10 to-transparent border border-orange-500/30 rounded-2xl hover:border-orange-500/50 transition-colors cursor-pointer">
+                    <div className="text-orange-400 text-sm font-medium uppercase tracking-wider mb-4">Path B</div>
+                    <h3 className="text-2xl font-bold text-white mb-3">Brownfield</h3>
+                    <p className="text-zinc-400 leading-relaxed">
+                      Existing codebase. Context-gathering and incremental improvements with focused prompts.
+                    </p>
+                    <div className="mt-6 flex flex-wrap gap-2">
+                      {['Legacy code', 'Iteration', 'Per-task planning'].map(tag => (
+                        <span key={tag} className="px-3 py-1 bg-orange-500/10 text-orange-400 text-xs rounded-full">{tag}</span>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </Slide>
+            );
+            
+          case 'greenfield-1':
+            return (
+              <Slide>
+                <div className="text-emerald-400 text-sm font-medium uppercase tracking-wider mb-2">Greenfield</div>
+                <StepBadge number="1" label="Idea Honing" />
+                <h2 className="text-4xl font-bold text-white mb-6">The Interview Method</h2>
+                <p className="text-zinc-400 text-lg mb-8 leading-relaxed">
+                  Use a conversational LLM to develop your idea through iterative questioning.
+                  Each question builds on previous answers until you have a complete spec.
+                </p>
+                <div className="grid md:grid-cols-3 gap-4 mb-8">
+                  {[
+                    { icon: '🤖', label: 'AI asks one question' },
+                    { icon: '👤', label: 'You answer, shaping the next' },
+                    { icon: '📄', label: 'AI drafts complete spec' },
+                  ].map((item, i) => (
+                    <div key={i} className="flex items-center gap-3 p-4 bg-zinc-800/50 rounded-xl">
+                      <span className="text-2xl">{item.icon}</span>
+                      <span className="text-zinc-300 text-sm">{item.label}</span>
+                    </div>
+                  ))}
+                </div>
+                <div className="p-4 bg-blue-500/10 border border-blue-500/30 rounded-xl">
+                  <p className="text-blue-300 text-sm">
+                    <strong>Recommended:</strong> ChatGPT 4o/o3 with Auto Mode — quick answers when simple, deep thinking when outputting the spec.
+                  </p>
+                </div>
+              </Slide>
+            );
+            
+          case 'greenfield-1b':
+            return (
+              <Slide dark>
+                <div className="text-emerald-400 text-sm font-medium uppercase tracking-wider mb-6">Greenfield → Step 1</div>
+                <h3 className="text-2xl font-bold text-white mb-6">The Interview Prompt</h3>
+                <CodeBlock>{`Ask me one question at a time so we can develop a thorough, step-by-step spec for this idea. Each question should build on my previous answers, and our end goal is to have a detailed specification I can hand off to a developer. Let's do this iteratively and dig into every relevant detail. Remember, only one question at a time.
+
+Here's the idea:
+
+<IDEA>`}</CodeBlock>
+                <FlowArrow />
+                <h3 className="text-xl font-bold text-white mb-4">When brainstorming concludes:</h3>
+                <CodeBlock>{`Now that we've wrapped up the brainstorming process, can you compile our findings into a comprehensive, developer-ready specification? Include all relevant requirements, architecture choices, data handling details, error handling strategies, and a testing plan so a developer can immediately begin implementation.`}</CodeBlock>
+                <p className="text-zinc-500 mt-6 text-sm">
+                  Save output as <code className="text-amber-400 bg-zinc-800 px-2 py-0.5 rounded">spec.md</code> in your repo.
+                </p>
+              </Slide>
+            );
+            
+          case 'greenfield-2':
+            return (
+              <Slide>
+                <div className="text-emerald-400 text-sm font-medium uppercase tracking-wider mb-2">Greenfield</div>
+                <StepBadge number="2" label="Planning" />
+                <h2 className="text-4xl font-bold text-white mb-6">The Blueprint</h2>
+                <p className="text-zinc-400 text-lg mb-8 leading-relaxed">
+                  Pass your spec to a <strong className="text-white">reasoning model</strong> (o1, o3, r1) to generate
+                  a detailed, step-by-step execution plan with copy-paste prompts.
+                </p>
+                <div className="space-y-4">
+                  <div className="flex items-center gap-4 p-4 bg-zinc-800/50 rounded-xl">
+                    <div className="w-10 h-10 bg-amber-500/20 rounded-lg flex items-center justify-center text-amber-500">📋</div>
+                    <div>
+                      <div className="text-white font-medium">Iterative Chunks</div>
+                      <div className="text-zinc-500 text-sm">Small steps that build on each other</div>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-4 p-4 bg-zinc-800/50 rounded-xl">
+                    <div className="w-10 h-10 bg-amber-500/20 rounded-lg flex items-center justify-center text-amber-500">🧪</div>
+                    <div>
+                      <div className="text-white font-medium">Test-Driven (Optional)</div>
+                      <div className="text-zinc-500 text-sm">Each step validates with real tests</div>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-4 p-4 bg-zinc-800/50 rounded-xl">
+                    <div className="w-10 h-10 bg-amber-500/20 rounded-lg flex items-center justify-center text-amber-500">🔗</div>
+                    <div>
+                      <div className="text-white font-medium">No Orphaned Code</div>
+                      <div className="text-zinc-500 text-sm">Everything wires together at the end</div>
+                    </div>
+                  </div>
+                </div>
+              </Slide>
+            );
+            
+          case 'greenfield-2b':
+            return (
+              <Slide dark>
+                <div className="text-emerald-400 text-sm font-medium uppercase tracking-wider mb-6">Greenfield → Step 2</div>
+                <h3 className="text-2xl font-bold text-white mb-2">The Blueprint Prompt</h3>
+                <p className="text-zinc-500 mb-4 text-sm">TDD Version — with testing baked in</p>
+                <CodeBlock>{`Draft a detailed, step-by-step blueprint for building this project. Then, once you have a solid plan, break it down into small, iterative chunks that build on each other. Look at these chunks and then go another round to break it into small steps. Review the results and make sure that the steps are small enough to be implemented safely with strong testing, but big enough to move the project forward. Iterate until you feel that the steps are right sized for this project.
+
+From here you should have the foundation to provide a series of prompts for a code-generation LLM that will implement each step in a test-driven manner. Prioritize best practices, incremental progress, and early testing, ensuring no big jumps in complexity at any stage. Make sure that each prompt builds on the previous prompts, and ends with wiring things together. There should be no hanging or orphaned code that isn't integrated into a previous step.
+
+Make sure and separate each prompt section. Use markdown. Each prompt should be tagged as text using code tags. The goal is to output prompts, but context, etc is important as well.
+
+<SPEC>`}</CodeBlock>
+              </Slide>
+            );
+            
+          case 'greenfield-2c':
+            return (
+              <Slide dark>
+                <div className="text-emerald-400 text-sm font-medium uppercase tracking-wider mb-6">Greenfield → Step 2</div>
+                <h3 className="text-2xl font-bold text-white mb-2">Alternative: Non-TDD Prompt</h3>
+                <p className="text-zinc-500 mb-4 text-sm">Without explicit testing requirements</p>
+                <CodeBlock>{`Draft a detailed, step-by-step blueprint for building this project. Then, once you have a solid plan, break it down into small, iterative chunks that build on each other. Look at these chunks and then go another round to break it into small steps. Review the results and make sure that the steps are small enough to be implemented safely, but big enough to move the project forward. Iterate until you feel that the steps are right sized for this project.
+
+From here you should have the foundation to provide a series of prompts for a code-generation LLM that will implement each step. Prioritize best practices, and incremental progress, ensuring no big jumps in complexity at any stage. Make sure that each prompt builds on the previous prompts, and ends with wiring things together. There should be no hanging or orphaned code that isn't integrated into a previous step.
+
+Make sure and separate each prompt section. Use markdown. Each prompt should be tagged as text using code tags. The goal is to output prompts, but context, etc is important as well.
+
+<SPEC>`}</CodeBlock>
+                <FlowArrow />
+                <h3 className="text-xl font-bold text-white mb-4">Then generate the checklist:</h3>
+                <CodeBlock>{`Can you make a todo.md that I can use as a checklist? Be thorough.`}</CodeBlock>
+                <p className="text-zinc-500 mt-4 text-sm">
+                  Save as <code className="text-amber-400 bg-zinc-800 px-2 py-0.5 rounded">prompt_plan.md</code> and <code className="text-amber-400 bg-zinc-800 px-2 py-0.5 rounded">todo.md</code>
+                </p>
+              </Slide>
+            );
+            
+          case 'greenfield-3':
+            return (
+              <Slide>
+                <div className="text-emerald-400 text-sm font-medium uppercase tracking-wider mb-2">Greenfield</div>
+                <StepBadge number="3" label="Execution" />
+                <h2 className="text-4xl font-bold text-white mb-6">Two Approaches</h2>
+                <div className="grid md:grid-cols-2 gap-8">
+                  <div className="p-6 border border-zinc-700 rounded-2xl">
+                    <div className="text-3xl mb-4">💬</div>
+                    <h3 className="text-xl font-bold text-white mb-3">Claude.ai</h3>
+                    <p className="text-zinc-400 text-sm mb-4">Pair programming style. Paste prompts iteratively, copy code to IDE.</p>
+                    <ul className="space-y-2 text-sm text-zinc-500">
+                      <li>→ Set up repo boilerplate</li>
+                      <li>→ Paste prompt into Claude</li>
+                      <li>→ Copy code to IDE</li>
+                      <li>→ Run tests, verify</li>
+                      <li>→ Use repomix if stuck</li>
+                    </ul>
+                  </div>
+                  <div className="p-6 border border-zinc-700 rounded-2xl">
+                    <div className="text-3xl mb-4">⚡</div>
+                    <h3 className="text-xl font-bold text-white mb-3">Aider</h3>
+                    <p className="text-zinc-400 text-sm mb-4">More hands-off. Aider applies changes directly and runs tests.</p>
+                    <ul className="space-y-2 text-sm text-zinc-500">
+                      <li>→ Set up repo boilerplate</li>
+                      <li>→ Start aider on new branch</li>
+                      <li>→ Paste prompt into aider</li>
+                      <li>→ Watch aider dance ♪┏(・o･)┛♪</li>
+                      <li>→ Q&A to fix issues</li>
+                    </ul>
+                  </div>
+                </div>
+              </Slide>
+            );
+            
+          case 'greenfield-3b':
+            return (
+              <Slide dark>
+                <div className="text-emerald-400 text-sm font-medium uppercase tracking-wider mb-6">Greenfield → Step 3</div>
+                <h3 className="text-2xl font-bold text-white mb-8">The Execution Loop</h3>
+                <div className="flex flex-col items-center space-y-4">
+                  {[
+                    { icon: '📝', label: 'Paste prompt from plan', color: 'bg-blue-500/20 text-blue-400' },
+                    { icon: '⚙️', label: 'LLM generates code', color: 'bg-amber-500/20 text-amber-400' },
+                    { icon: '🧪', label: 'Run tests / verify', color: 'bg-emerald-500/20 text-emerald-400' },
+                    { icon: '✓', label: 'Check off todo.md', color: 'bg-purple-500/20 text-purple-400' },
+                  ].map((step, i) => (
+                    <Fragment key={i}>
+                      <div className={`flex items-center gap-4 px-6 py-4 ${step.color} rounded-xl w-full max-w-md`}>
+                        <span className="text-2xl">{step.icon}</span>
+                        <span className="font-medium">{step.label}</span>
+                      </div>
+                      {i < 3 && <div className="text-zinc-600 text-xl">↓</div>}
+                    </Fragment>
+                  ))}
+                </div>
+                <div className="mt-8 p-4 bg-zinc-800/50 rounded-xl text-center">
+                  <p className="text-zinc-400">
+                    Repeat until <code className="text-amber-400">todo.md</code> is complete.
+                    The todo keeps state across sessions.
+                  </p>
+                </div>
+              </Slide>
+            );
+            
+          case 'brownfield-1':
+            return (
+              <Slide>
+                <div className="text-orange-400 text-sm font-medium uppercase tracking-wider mb-2">Brownfield</div>
+                <StepBadge number="1" label="Context Gathering" />
+                <h2 className="text-4xl font-bold text-white mb-6">Get Your Codebase Into the LLM</h2>
+                <p className="text-zinc-400 text-lg mb-8 leading-relaxed">
+                  Use a tool like <strong className="text-white">repomix</strong> to pack your source code
+                  efficiently for LLM consumption. Planning is done per-task, not for the entire project.
+                </p>
+                <CodeBlock copyable={false}>{`# Generate context file
+npx repomix
+
+# Or with mise tasks:
+mise run LLM:clean_bundles
+mise run LLM:copy_buffer_bundle`}</CodeBlock>
+                <div className="mt-6 p-4 bg-orange-500/10 border border-orange-500/30 rounded-xl">
+                  <p className="text-orange-300 text-sm">
+                    <strong>Tip:</strong> Edit ignore patterns to exclude irrelevant code and save tokens.
+                  </p>
+                </div>
+              </Slide>
+            );
+            
+          case 'brownfield-2':
+            return (
+              <Slide dark>
+                <div className="text-orange-400 text-sm font-medium uppercase tracking-wider mb-6">Brownfield</div>
+                <h3 className="text-2xl font-bold text-white mb-8">The Iteration Workflow</h3>
+                <div className="grid md:grid-cols-2 gap-8">
+                  <div>
+                    <h4 className="text-lg font-semibold text-white mb-4">With Claude:</h4>
+                    <ol className="space-y-3 text-zinc-400 text-sm">
+                      <li className="flex gap-3"><span className="text-amber-500">1.</span> Run analysis prompt (code review, missing tests, etc.)</li>
+                      <li className="flex gap-3"><span className="text-amber-500">2.</span> Look at generated markdown</li>
+                      <li className="flex gap-3"><span className="text-amber-500">3.</span> Copy full context via repomix</li>
+                      <li className="flex gap-3"><span className="text-amber-500">4.</span> Paste context + first issue into Claude</li>
+                      <li className="flex gap-3"><span className="text-amber-500">5.</span> Copy generated code to IDE</li>
+                      <li className="flex gap-3"><span className="text-amber-500">6.</span> Run tests, repeat ✩₊˚.⋆☾⋆⁺₊✧</li>
+                    </ol>
+                  </div>
+                  <div>
+                    <h4 className="text-lg font-semibold text-white mb-4">With Aider:</h4>
+                    <ol className="space-y-3 text-zinc-400 text-sm">
+                      <li className="flex gap-3"><span className="text-amber-500">1.</span> Run analysis prompt</li>
+                      <li className="flex gap-3"><span className="text-amber-500">2.</span> Look at generated markdown</li>
+                      <li className="flex gap-3"><span className="text-amber-500">3.</span> Start aider (new branch!)</li>
+                      <li className="flex gap-3"><span className="text-amber-500">4.</span> Paste first issue into aider</li>
+                      <li className="flex gap-3"><span className="text-amber-500">5.</span> Watch aider dance ♪┏(・o･)┛♪</li>
+                      <li className="flex gap-3"><span className="text-amber-500">6.</span> Run tests, repeat ✩₊˚.⋆☾⋆⁺₊✧</li>
+                    </ol>
+                  </div>
+                </div>
+              </Slide>
+            );
+            
+          case 'prompts':
+            return (
+              <Slide>
+                <h2 className="text-3xl font-bold text-white mb-8">Prompt Library</h2>
+                <div className="space-y-6">
+                  <div>
+                    <h3 className="text-lg font-semibold text-amber-400 mb-3">Code Review</h3>
+                    <CodeBlock>{`You are a senior developer. Your job is to do a thorough code review of this code. You should write it up and output markdown. Include line numbers, and contextual info. Your code review will be passed to another teammate, so be thorough. Think deeply before writing the code review. Review every part, and don't hallucinate.`}</CodeBlock>
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-semibold text-amber-400 mb-3">GitHub Issue Generation</h3>
+                    <CodeBlock>{`You are a senior developer. Your job is to review this code, and write out the top issues that you see with the code. It could be bugs, design choices, or code cleanliness issues. You should be specific, and be very good. Do Not Hallucinate. Think quietly to yourself, then act - write the issues. The issues will be given to a developer to executed on, so they should be in a format that is compatible with github issues`}</CodeBlock>
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-semibold text-amber-400 mb-3">Missing Tests</h3>
+                    <CodeBlock>{`You are a senior developer. Your job is to review this code, and write out a list of missing test cases, and code tests that should exist. You should be specific, and be very good. Do Not Hallucinate. Think quietly to yourself, then act - write the issues. The issues will be given to a developer to executed on, so they should be in a format that is compatible with github issues`}</CodeBlock>
+                  </div>
+                </div>
+              </Slide>
+            );
+            
+          case 'tips':
+            return (
+              <Slide dark>
+                <h2 className="text-3xl font-bold text-white mb-8">Tips & Gotchas</h2>
+                <div className="grid md:grid-cols-2 gap-6">
+                  <div className="p-6 bg-red-500/10 border border-red-500/30 rounded-xl">
+                    <h3 className="text-lg font-semibold text-red-400 mb-3">⚠️ "Over Your Skis"</h3>
+                    <p className="text-zinc-400 text-sm leading-relaxed">
+                      You can easily get ahead of yourself. Keep track of what's happening.
+                      Use the planning step and todo.md to stay grounded.
+                      Take breaks when confused.
+                    </p>
+                  </div>
+                  <div className="p-6 bg-blue-500/10 border border-blue-500/30 rounded-xl">
+                    <h3 className="text-lg font-semibold text-blue-400 mb-3">📅 Knowledge Cutoff</h3>
+                    <p className="text-zinc-400 text-sm leading-relaxed">
+                      AI defaults to old API versions. Embed lessons into project files
+                      (claude.md, .cursor/rules, agents.md) so future sessions auto-correct.
+                    </p>
+                  </div>
+                  <div className="p-6 bg-emerald-500/10 border border-emerald-500/30 rounded-xl">
+                    <h3 className="text-lg font-semibold text-emerald-400 mb-3">📝 Embed Lessons</h3>
+                    <CodeBlock>{`We figured out how to fix this. Now I need you to update the claude.md file with this lesson.
+
+Write it briefly and information-dense. I want future AIs to see this and never make this mistake again.`}</CodeBlock>
+                  </div>
+                  <div className="p-6 bg-purple-500/10 border border-purple-500/30 rounded-xl">
+                    <h3 className="text-lg font-semibold text-purple-400 mb-3">⏱️ Downtime</h3>
+                    <p className="text-zinc-400 text-sm leading-relaxed">
+                      You'll have waiting time while LLMs burn tokens.
+                      Use it to brainstorm another project, or just take a break.
+                      Play cookie clicker. Listen to records.
+                    </p>
+                  </div>
+                </div>
+              </Slide>
+            );
+            
+          case 'recap':
+            return (
+              <Slide>
+                <div className="text-center mb-12">
+                  <h2 className="text-4xl font-bold text-white mb-4">The Complete System</h2>
+                  <p className="text-zinc-400">Three documents. Infinite possibilities.</p>
+                </div>
+                <div className="flex flex-col md:flex-row items-center justify-center gap-6 mb-12">
+                  {[
+                    { num: '01', title: 'spec.md', desc: 'What to build' },
+                    { num: '02', title: 'prompt_plan.md', desc: 'How to build it' },
+                    { num: '03', title: 'todo.md', desc: 'Track progress' },
+                  ].map((item, i) => (
+                    <Fragment key={i}>
+                      <div className="text-center p-6 bg-zinc-800/50 rounded-2xl border border-zinc-700 min-w-[160px]">
+                        <div className="text-amber-500 font-bold text-xl mb-2">{item.num}</div>
+                        <code className="text-white text-lg">{item.title}</code>
+                        <p className="text-zinc-500 text-sm mt-2">{item.desc}</p>
+                      </div>
+                      {i < 2 && <div className="text-zinc-600 text-2xl hidden md:block">→</div>}
+                    </Fragment>
+                  ))}
+                </div>
+                <div className="text-center space-y-4">
+                  <p className="text-xl text-zinc-300">
+                    Brainstorm spec → Plan a plan → Execute with LLM codegen
+                  </p>
+                  <p className="text-zinc-500">
+                    Discrete loops. Then magic. ✩₊˚.⋆☾⋆⁺₊✧
+                  </p>
+                  <div className="pt-8">
+                    <a 
+                      href="https://harper.blog/2025/02/16/my-llm-codegen-workflow-atm/"
+                      className="inline-flex items-center gap-2 px-6 py-3 bg-amber-500 hover:bg-amber-400 text-zinc-950 font-semibold rounded-lg transition-colors"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      Read the full post →
+                    </a>
+                  </div>
+                </div>
+              </Slide>
+            );
+            
+          default:
+            return null;
+        }
+      };
+      
+      return (
+        <div className="bg-zinc-950 text-white min-h-screen">
+          <TableOfContents currentSlide={currentSlide} onNavigate={goToSlide} />
+          
+          <div className="transition-opacity duration-300">
+            {renderSlide()}
+          </div>
+          
+          <Navigation
+            current={currentSlide}
+            total={slides.length}
+            onPrev={prevSlide}
+            onNext={nextSlide}
+          />
+          
+          <div className="fixed bottom-20 left-6 text-zinc-600 text-sm hidden md:block">
+            {currentSlide + 1} / {slides.length}
+          </div>
+          
+          <div className="fixed bottom-20 right-6 text-zinc-700 text-xs hidden md:block">
+            ← → or Space to navigate
+          </div>
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById('root')).render(<LLMCodegenWorkflow />);
+  </script>
+</body>
+</html>
